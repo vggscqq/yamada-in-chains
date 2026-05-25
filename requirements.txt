@@ -1,0 +1,6 @@
+aiogram>=3.7
+sqlalchemy>=2.0
+aiosqlite
+markovify
+psutil
+pydantic-settings
