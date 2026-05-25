@@ -89,13 +89,14 @@ async def on_message(message: Message, bot: Bot) -> None:
         and message.reply_to_message.from_user is not None
         and message.reply_to_message.from_user.id == bot.id
     )
-    if replied_to_bot:
-        percentage = min(percentage * 2, 100)
 
-    if random.randint(1, 100) > percentage:
-        return
-    if is_flood(chat_id, rate=10, seconds=30):
-        return
+    if not (replied_to_bot and session_obj.always_reply):
+        if replied_to_bot:
+            percentage = min(percentage * 2, 100)
+        if random.randint(1, 100) > percentage:
+            return
+        if is_flood(chat_id, rate=10, seconds=30):
+            return
 
     generated = wrapper.generate()
     if generated is None:
@@ -104,9 +105,7 @@ async def on_message(message: Message, bot: Bot) -> None:
     generated = apply_transforms(generated, session_obj)
 
     try:
-        if replied_to_bot and session_obj.always_reply:
-            await message.reply(generated)
-        elif replied_to_bot or (
+        if replied_to_bot or (
             session_obj.random_replies and random.randint(1, 100) <= percentage // 2
         ):
             await message.reply(generated)
