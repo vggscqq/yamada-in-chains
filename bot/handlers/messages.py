@@ -12,6 +12,7 @@ from bot.database import repo
 from bot.database.engine import db_session
 from bot.filters import is_message_ok
 from bot.markov_cache import CacheEntry, MarkovWrapper, chat_sessions, markovs
+from bot.markov_builder import build_markov_wrapper
 from bot.transforms import apply_transforms
 
 router = Router()
@@ -58,9 +59,7 @@ async def on_message(message: Message, bot: Bot) -> None:
 
         # Lazy-init or TTL refresh
         if chat_id not in markovs:
-            msgs = await repo.get_latest_messages(db, session_obj, settings.keep_last)
-            texts = [m.text for m in msgs if is_message_ok(session_obj, m.text)]
-            wrapper = MarkovWrapper(texts, keep_last=settings.keep_last, case_sensitive=session_obj.case_sensitive)
+            wrapper = await build_markov_wrapper(db, session_obj)
             markovs[chat_id] = CacheEntry(timestamp=time.time(), value=wrapper)
         else:
             markovs[chat_id].timestamp = time.time()

@@ -6,6 +6,10 @@
 - /disable — disable learning in this chat
 - /markov [seed] — generate a sentence from learned data
 - /percentage [0-100] — tune the bot's reply ratio
+- /subtitlepercentage [0-100] — % of training messages replaced with YouTube subtitle lines (admins only)
+- /videos — list configured YouTube videos (admins only)
+- /addvideo <id> — add a YouTube video as subtitle source (admins only)
+- /removevideo <id> — remove a YouTube video (admins only)
 - /settings — edit chat settings (admins only)
 - /sessions — manage learning sessions (admins only)
 - /delete — delete the current session and its messages (admins only)

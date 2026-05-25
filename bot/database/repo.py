@@ -4,7 +4,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from bot.database.models import Chat, Message, Session, User
+from bot.database.models import Chat, ChatVideo, Message, Session, User
 
 
 # ── Users ──────────────────────────────────────────────────────────────────
@@ -264,3 +264,44 @@ async def get_total_counts(db: AsyncSession) -> dict:
     sessions = (await db.execute(select(func.count()).select_from(Session))).scalar_one()
     messages = (await db.execute(select(func.count()).select_from(Message))).scalar_one()
     return {"users": users, "chats": chats, "sessions": sessions, "messages": messages}
+
+
+# ── Chat videos ──────────────────────────────────────────────────────────────
+
+
+async def get_chat_videos(db: AsyncSession, chat_id: int) -> list[ChatVideo]:
+    chat = await get_or_insert_chat(db, chat_id)
+    result = await db.execute(
+        select(ChatVideo).where(ChatVideo.chat_id == chat.id).order_by(ChatVideo.id)
+    )
+    return list(result.scalars().all())
+
+
+async def add_chat_video(
+    db: AsyncSession, chat_id: int, video_id: str, title: str | None = None, channel: str | None = None
+) -> ChatVideo | None:
+    """Add a video to the chat's list. Returns None if it already exists."""
+    chat = await get_or_insert_chat(db, chat_id)
+    existing = await db.execute(
+        select(ChatVideo).where(
+            ChatVideo.chat_id == chat.id, ChatVideo.video_id == video_id
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return None
+    entry = ChatVideo(chat_id=chat.id, video_id=video_id, title=title, channel=channel)
+    db.add(entry)
+    await db.flush()
+    return entry
+
+
+async def remove_chat_video(db: AsyncSession, chat_id: int, video_id: str) -> bool:
+    """Remove a video from the chat's list. Returns True if it was found."""
+    chat = await get_or_insert_chat(db, chat_id)
+    result = await db.execute(
+        delete(ChatVideo).where(
+            ChatVideo.chat_id == chat.id, ChatVideo.video_id == video_id
+        )
+    )
+    await db.flush()
+    return result.rowcount > 0

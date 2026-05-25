@@ -26,6 +26,7 @@ from bot.markov_cache import (
 from bot.config import settings
 from bot.filters import is_message_ok
 from bot.handlers.commands import AddSession
+from bot.markov_builder import build_markov_wrapper
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -203,11 +204,9 @@ async def cb_set_session(callback: CallbackQuery, bot: Bot) -> None:
             new_default = await repo.get_default_session(db, chat_id)
 
         # Rebuild Markov for new session
-        msgs = await repo.get_latest_messages(db, new_default, settings.keep_last)
-        texts = [m.text for m in msgs if is_message_ok(new_default, m.text)]
         markovs[chat_id] = CacheEntry(
             timestamp=time.time(),
-            value=MarkovWrapper(texts, keep_last=settings.keep_last, case_sensitive=new_default.case_sensitive),
+            value=await build_markov_wrapper(db, new_default),
         )
         chat_sessions[chat_id] = CacheEntry(timestamp=time.time(), value=new_default)
 

@@ -27,6 +27,8 @@ from bot.markov_cache import (
 )
 from bot.transforms import apply_transforms
 from bot.config import settings
+from bot.markov_builder import build_markov_wrapper, invalidate_video_cache
+from bot.subtitles import extract_video_id, fetch_video_info
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -67,9 +69,7 @@ def _is_bot_admin(user_id: int) -> bool:
 
 async def _ensure_markov(db, session_obj, chat_id: int) -> MarkovWrapper:
     if chat_id not in markovs:
-        msgs = await repo.get_latest_messages(db, session_obj, settings.keep_last)
-        texts = [m.text for m in msgs if is_message_ok(session_obj, m.text)]
-        wrapper = MarkovWrapper(texts, keep_last=settings.keep_last, case_sensitive=session_obj.case_sensitive)
+        wrapper = await build_markov_wrapper(db, session_obj)
         markovs[chat_id] = CacheEntry(timestamp=time.time(), value=wrapper)
     else:
         markovs[chat_id].timestamp = time.time()
@@ -215,6 +215,127 @@ async def cmd_percentage(message: Message, command: CommandObject, bot: Bot) -> 
     await message.answer(f"Reply percentage set to **{value}%**.")
 
 
+# ── /subtitlepercentage ────────────────────────────────────────────────────
+
+
+@router.message(Command("subtitlepercentage"))
+async def cmd_subtitlepercentage(message: Message, command: CommandObject, bot: Bot) -> None:
+    if not message.from_user:
+        return
+    is_pm = message.chat.type == "private"
+    if not is_pm and not await _is_group_admin(bot, message):
+        await message.answer("Only group admins can use this command.")
+        return
+
+    async with db_session() as db:
+        chat = await repo.get_or_insert_chat(db, message.chat.id, is_private=is_pm)
+        if not command.args:
+            await db.commit()
+            await message.answer(
+                f"Current subtitle augmentation: **{chat.subtitle_percentage}%** of training messages "
+                f"are randomly replaced with subtitle lines.",
+            )
+            return
+        try:
+            value = int(command.args.strip())
+            if not 0 <= value <= 100:
+                raise ValueError
+        except ValueError:
+            await db.commit()
+            await message.answer("Please provide a value between 0 and 100.")
+            return
+        chat.subtitle_percentage = value
+        await db.commit()
+
+    # Invalidate the cached wrapper so it rebuilds with the new percentage.
+    markovs.pop(message.chat.id, None)
+    await message.answer(f"Subtitle augmentation set to **{value}%**.")
+
+
+# ── /videos / /addvideo / /removevideo ────────────────────────────────────
+
+
+@router.message(Command("videos"))
+async def cmd_videos(message: Message, bot: Bot) -> None:
+    if not message.from_user:
+        return
+    is_pm = message.chat.type == "private"
+    if not is_pm and not await _is_group_admin(bot, message):
+        await message.answer("Only group admins can use this command.")
+        return
+    async with db_session() as db:
+        videos = await repo.get_chat_videos(db, message.chat.id)
+        await db.commit()
+    if not videos:
+        await message.answer("No YouTube videos configured for this chat.")
+        return
+    lines = []
+    for v in videos:
+        label = v.title or v.video_id
+        if v.channel:
+            label = f"{label} — {v.channel}"
+        lines.append(f"• [{label}](https://youtu.be/{v.video_id})")
+    await message.answer(
+        "**Configured videos:**\n" + "\n".join(lines),
+        parse_mode="Markdown",
+    )
+
+
+@router.message(Command("addvideo"))
+async def cmd_addvideo(message: Message, command: CommandObject, bot: Bot) -> None:
+    if not message.from_user:
+        return
+    is_pm = message.chat.type == "private"
+    if not is_pm and not await _is_group_admin(bot, message):
+        await message.answer("Only group admins can use this command.")
+        return
+    if not command.args:
+        await message.answer("Usage: /addvideo <youtube_url_or_id>")
+        return
+    video_id = extract_video_id(command.args.strip())
+    if video_id is None:
+        await message.answer("Could not recognise a YouTube video ID in that input.")
+        return
+    title, channel = await fetch_video_info(video_id)
+    async with db_session() as db:
+        entry = await repo.add_chat_video(db, message.chat.id, video_id, title=title, channel=channel)
+        await db.commit()
+    if entry is None:
+        await message.answer(f"Video `{video_id}` is already in the list.")
+        return
+    markovs.pop(message.chat.id, None)
+    label = title or video_id
+    if channel:
+        label = f"{label} — {channel}"
+    await message.answer(
+        f"Added [{label}](https://youtu.be/{video_id}).",
+        parse_mode="Markdown",
+    )
+
+
+@router.message(Command("removevideo"))
+async def cmd_removevideo(message: Message, command: CommandObject, bot: Bot) -> None:
+    if not message.from_user:
+        return
+    is_pm = message.chat.type == "private"
+    if not is_pm and not await _is_group_admin(bot, message):
+        await message.answer("Only group admins can use this command.")
+        return
+    if not command.args:
+        await message.answer("Usage: /removevideo <youtube_video_id>")
+        return
+    video_id = command.args.strip()
+    async with db_session() as db:
+        removed = await repo.remove_chat_video(db, message.chat.id, video_id)
+        await db.commit()
+    if not removed:
+        await message.answer(f"Video `{video_id}` was not in the list.")
+        return
+    invalidate_video_cache(video_id)
+    markovs.pop(message.chat.id, None)
+    await message.answer(f"✅ Removed `{video_id}`.")
+
+
 # ── /markov ────────────────────────────────────────────────────────────────
 
 
@@ -339,7 +460,8 @@ async def cmd_settings(message: Message, bot: Bot) -> None:
 
     from bot.handlers.callbacks import get_settings_keyboard
     await message.answer(
-        "Tap a button to toggle a setting. Use /percentage to change the reply ratio.",
+        "Tap a button to toggle a setting. Use /percentage to change the reply ratio, "
+        "/subtitlepercentage to set YouTube subtitle augmentation.",
         reply_markup=get_settings_keyboard(session_obj),
     )
 

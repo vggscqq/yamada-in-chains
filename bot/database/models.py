@@ -34,10 +34,27 @@ class Chat(Base):
     keep_sfw: Mapped[bool] = mapped_column(Boolean, default=False)  # kept for DB compat, unused
     markov_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     polls_disabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    subtitle_percentage: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="chat", cascade="all, delete-orphan"
     )
+    videos: Mapped[list["ChatVideo"]] = relationship(
+        back_populates="chat", cascade="all, delete-orphan"
+    )
+
+
+class ChatVideo(Base):
+    __tablename__ = "chat_videos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chat_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("chats.id", ondelete="CASCADE"), index=True
+    )
+    video_id: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str | None] = mapped_column(String(256), nullable=True, default=None)
+    channel: Mapped[str | None] = mapped_column(String(256), nullable=True, default=None)
+    chat: Mapped["Chat"] = relationship(back_populates="videos")
 
 
 class Session(Base):
