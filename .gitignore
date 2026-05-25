@@ -33,6 +33,6 @@ data/
 Thumbs.db
 
 #misc
-.yamada.tar
+yamada.tar
 markov.db
 prompt.md
