@@ -5,6 +5,7 @@ Migration: pre-commit schema → current schema.
   2. chat_videos                table (did not exist pre-commit); or add
                                 chat_videos.title / chat_videos.channel if the
                                 table was created manually without them
+  3. subtitle_lines             table
 """
 
 import sqlite3
@@ -57,6 +58,21 @@ def migrate(db_path: Path) -> None:
         if "channel" not in cv_cols:
             con.execute("ALTER TABLE chat_videos ADD COLUMN channel VARCHAR(256)")
             applied.append("chat_videos.channel")
+
+    # 3. subtitle_lines table
+    if "subtitle_lines" not in tables:
+        con.execute(
+            """CREATE TABLE subtitle_lines (
+                id       INTEGER PRIMARY KEY,
+                video_id VARCHAR(32) NOT NULL,
+                text     TEXT NOT NULL,
+                weight   REAL NOT NULL DEFAULT 1.0
+            )"""
+        )
+        con.execute(
+            "CREATE INDEX ix_subtitle_lines_video_id ON subtitle_lines(video_id)"
+        )
+        applied.append("subtitle_lines (table created)")
 
     con.commit()
     con.close()

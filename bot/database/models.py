@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -91,3 +91,13 @@ class Message(Base):
     sender_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
     sender: Mapped[User] = relationship(back_populates="messages")
     text: Mapped[str] = mapped_column(Text)
+
+
+class SubtitleLine(Base):
+    __tablename__ = "subtitle_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    video_id: Mapped[str] = mapped_column(String(32), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+

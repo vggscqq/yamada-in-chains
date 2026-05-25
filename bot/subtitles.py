@@ -10,6 +10,8 @@ import logging
 import re
 from pathlib import Path
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from bot.config import settings
 
 logger = logging.getLogger(__name__)
@@ -115,10 +117,20 @@ def invalidate_video_cache(video_id: str) -> None:
     _video_pool_cache.pop(video_id, None)
 
 
-async def get_pool_for_video(video_id: str) -> list[tuple[str, float]]:
+async def get_pool_for_video(
+    video_id: str, db: AsyncSession | None = None
+) -> list[tuple[str, float]]:
     """Return (text, weight) pairs for a video, fetching and caching as needed."""
     if video_id in _video_pool_cache:
         return _video_pool_cache[video_id]
+
+    # Try DB first when a session is available
+    if db is not None:
+        from bot.database import repo
+        db_lines = await repo.get_subtitle_lines(db, video_id)
+        if db_lines:
+            _video_pool_cache[video_id] = db_lines
+            return db_lines
 
     loop = asyncio.get_event_loop()
     cache: dict = await loop.run_in_executor(None, _load_cache_sync)
@@ -146,10 +158,17 @@ async def get_pool_for_video(video_id: str) -> list[tuple[str, float]]:
         for line in lines
     ]
     _video_pool_cache[video_id] = pool
+
+    if db is not None and pool:
+        from bot.database import repo
+        await repo.save_subtitle_lines(db, video_id, pool)
+
     return pool
 
 
-async def get_pool_for_videos(video_ids: list[str]) -> list[tuple[str, float]]:
+async def get_pool_for_videos(
+    video_ids: list[str], db: AsyncSession | None = None
+) -> list[tuple[str, float]]:
     """Combine per-video pools with equal weight contribution per video.
 
     Each video's weights are rescaled so their sum equals 1.0 before merging,
@@ -157,7 +176,7 @@ async def get_pool_for_videos(video_ids: list[str]) -> list[tuple[str, float]]:
     """
     pool: list[tuple[str, float]] = []
     for vid in video_ids:
-        per_video = await get_pool_for_video(vid)
+        per_video = await get_pool_for_video(vid, db=db)
         if not per_video:
             continue
         total = sum(w for _, w in per_video)
@@ -165,14 +184,16 @@ async def get_pool_for_videos(video_ids: list[str]) -> list[tuple[str, float]]:
     return pool
 
 
-async def fetch_video_info(video_id: str) -> tuple[str | None, str | None]:
+async def fetch_video_info(
+    video_id: str, db: AsyncSession | None = None
+) -> tuple[str | None, str | None]:
     """Return (title, channel) from disk cache, fetching everything if needed."""
     loop = asyncio.get_event_loop()
     cache: dict = await loop.run_in_executor(None, _load_cache_sync)
     if video_id in cache:
         return cache[video_id].get("title"), cache[video_id].get("channel")
     # Not in cache yet — fetch everything now so it's ready for sampling later.
-    await get_pool_for_video(video_id)
+    await get_pool_for_video(video_id, db=db)
     cache = await loop.run_in_executor(None, _load_cache_sync)
     entry = cache.get(video_id, {})
     return entry.get("title"), entry.get("channel")

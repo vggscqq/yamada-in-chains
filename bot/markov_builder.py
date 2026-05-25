@@ -24,7 +24,7 @@ async def build_markov_wrapper(db: AsyncSession, session_obj) -> MarkovWrapper:
 
     subtitle_pct: int = getattr(session_obj.chat, "subtitle_percentage", 0)
     if video_ids:
-        pool = await get_pool_for_videos(video_ids)
+        pool = await get_pool_for_videos(video_ids, db=db)
         if pool:
             texts_pool = [t for t, _ in pool]
             weights = [w for _, w in pool]

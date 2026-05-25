@@ -4,7 +4,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from bot.database.models import Chat, ChatVideo, Message, Session, User
+from bot.database.models import Chat, ChatVideo, Message, Session, SubtitleLine, User
 
 
 # ── Users ──────────────────────────────────────────────────────────────────
@@ -305,3 +305,38 @@ async def remove_chat_video(db: AsyncSession, chat_id: int, video_id: str) -> bo
     )
     await db.flush()
     return result.rowcount > 0
+
+
+# ── Subtitle lines ─────────────────────────────────────────────────────────
+
+
+async def get_subtitle_lines(
+    db: AsyncSession, video_id: str
+) -> list[tuple[str, float]]:
+    """Return (text, weight) pairs stored for a video, or [] if none."""
+    result = await db.execute(
+        select(SubtitleLine)
+        .where(SubtitleLine.video_id == video_id)
+        .order_by(SubtitleLine.id)
+    )
+    rows = result.scalars().all()
+    return [(row.text, row.weight) for row in rows]
+
+
+async def save_subtitle_lines(
+    db: AsyncSession, video_id: str, lines: list[tuple[str, float]]
+) -> None:
+    """Persist (text, weight) pairs for a video. No-op if already present."""
+    existing = await db.execute(
+        select(func.count())
+        .select_from(SubtitleLine)
+        .where(SubtitleLine.video_id == video_id)
+    )
+    if existing.scalar_one() > 0:
+        return
+    db.add_all(
+        SubtitleLine(video_id=video_id, text=text, weight=weight)
+        for text, weight in lines
+    )
+    await db.flush()
+

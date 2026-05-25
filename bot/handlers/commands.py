@@ -296,8 +296,8 @@ async def cmd_addvideo(message: Message, command: CommandObject, bot: Bot) -> No
     if video_id is None:
         await message.answer("Could not recognise a YouTube video ID in that input.")
         return
-    title, channel = await fetch_video_info(video_id)
     async with db_session() as db:
+        title, channel = await fetch_video_info(video_id, db=db)
         entry = await repo.add_chat_video(db, message.chat.id, video_id, title=title, channel=channel)
         await db.commit()
     if entry is None:
